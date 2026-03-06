@@ -315,6 +315,164 @@ app.put('/appointments/:id/reject', async (req, res) => {
   }
 });
 
+// =======================
+// Usuarios
+// =======================
+
+// Creación de usuarios
+app.post('/users', async (req, res) => {
+  const { username, rol } = req.body;
+
+  try {
+    if (!username || !rol) {
+      return res.status(400).send('Campos obligatorios: username y rol');
+    }
+
+    const validRoles = ['admin', 'agenda', 'consulta'];
+    if (!validRoles.includes(rol)) {
+      return res.status(400).send('Rol inválido');
+    }
+
+    // Password por defecto
+    const defaultPassword = 'password123';
+
+    const result = await pool.query(
+      `INSERT INTO users (username, password, rol, usr_status, must_change_password)
+       VALUES ($1, $2, $3, 'activo', TRUE)
+       RETURNING id, username, rol, usr_status, must_change_password`,
+      [username, defaultPassword, rol]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error al crear usuario');
+  }
+});
+
+// Cambio de contraseña
+app.put('/users/:id/password', async (req, res) => {
+  const { id } = req.params;
+  const { newPassword } = req.body;
+
+  // Validar complejidad de contraseña
+  const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{10,}$/;
+  if (!regex.test(newPassword)) {
+    return res.status(400).send('La contraseña debe tener mínimo 10 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales');
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE users SET password=$1, must_change_password=FALSE WHERE id=$2 RETURNING id, username, rol, usr_status, must_change_password`,
+      [newPassword, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).send(`Usuario con id ${id} no encontrado`);
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error al cambiar contraseña');
+  }
+});
+
+
+// Login
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
+
+    if (result.rows.length === 0) {
+      return res.status(400).send('Usuario no encontrado');
+    }
+
+    const user = result.rows[0];
+
+    // Verificar estado del usuario
+    if (user.usr_status !== 'activo') {
+      return res.status(403).send(`Usuario ${user.usr_status}, no puede iniciar sesión`);
+    }
+
+    // Validar contraseña
+    if (user.password !== password) {
+      const attempts = user.failed_attempts + 1;
+
+      // Si llega a 3 intentos, bloquear usuario
+      if (attempts >= 3) {
+        await pool.query(
+          'UPDATE users SET usr_status=$1, failed_attempts=$2 WHERE id=$3',
+          ['bloqueado', attempts, user.id]
+        );
+        return res.status(403).send('Usuario bloqueado por múltiples intentos fallidos');
+      } else {
+        await pool.query(
+          'UPDATE users SET failed_attempts=$1 WHERE id=$2',
+          [attempts, user.id]
+        );
+        return res.status(400).send(`Contraseña incorrecta. Intentos fallidos: ${attempts}`);
+      }
+    }
+
+    // Si la contraseña es correcta → resetear intentos fallidos
+    await pool.query(
+      'UPDATE users SET failed_attempts=0 WHERE id=$1',
+      [user.id]
+    );
+
+    res.json({
+      id: user.id,
+      username: user.username,
+      rol: user.rol,
+      usr_status: user.usr_status,
+      must_change_password: user.must_change_password
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error en login');
+  }
+});
+
+// Cambiar estado de un usuario (solo admin)
+app.put('/users/:id/status', async (req, res) => {
+  const { id } = req.params;
+  const { newStatus, adminId } = req.body;
+
+  try {
+    // Validar que el admin exista y tenga rol admin
+    const adminCheck = await pool.query('SELECT rol FROM users WHERE id=$1', [adminId]);
+    if (adminCheck.rows.length === 0) {
+      return res.status(403).send('Admin no encontrado');
+    }
+    if (adminCheck.rows[0].rol !== 'admin') {
+      return res.status(403).send('Solo un usuario con rol admin puede cambiar estados');
+    }
+
+    // Validar nuevo estado
+    const validStatuses = ['activo', 'bloqueado', 'deshabilitado'];
+    if (!validStatuses.includes(newStatus)) {
+      return res.status(400).send('Estado inválido');
+    }
+
+    // Actualizar estado del usuario
+    const result = await pool.query(
+      'UPDATE users SET usr_status=$1 WHERE id=$2 RETURNING id, username, rol, usr_status',
+      [newStatus, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).send(`Usuario con id ${id} no encontrado`);
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error al cambiar estado del usuario');
+  }
+});
 
 
 // =======================
