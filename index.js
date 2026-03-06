@@ -320,6 +320,9 @@ app.put('/appointments/:id/reject', async (req, res) => {
 // =======================
 
 // Creación de usuarios
+const bcrypt = require('bcrypt');
+const saltRounds = 10;
+
 app.post('/users', async (req, res) => {
   const { username, rol } = req.body;
 
@@ -333,12 +336,12 @@ app.post('/users', async (req, res) => {
       return res.status(400).send('Rol inválido');
     }
 
-    // Password por defecto
-    const defaultPassword = 'password123';
+    // Encriptar password por defecto
+    const defaultPassword = await bcrypt.hash('password123', saltRounds);
 
     const result = await pool.query(
-      `INSERT INTO users (username, password, rol, usr_status, must_change_password)
-       VALUES ($1, $2, $3, 'activo', TRUE)
+      `INSERT INTO users (username, password, rol, usr_status, must_change_password, failed_attempts)
+       VALUES ($1, $2, $3, 'activo', TRUE, 0)
        RETURNING id, username, rol, usr_status, must_change_password`,
       [username, defaultPassword, rol]
     );
@@ -350,21 +353,25 @@ app.post('/users', async (req, res) => {
   }
 });
 
+
 // Cambio de contraseña
 app.put('/users/:id/password', async (req, res) => {
   const { id } = req.params;
   const { newPassword } = req.body;
 
-  // Validar complejidad de contraseña
+  // Validar complejidad
   const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{10,}$/;
   if (!regex.test(newPassword)) {
     return res.status(400).send('La contraseña debe tener mínimo 10 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales');
   }
 
   try {
+    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+
     const result = await pool.query(
-      `UPDATE users SET password=$1, must_change_password=FALSE WHERE id=$2 RETURNING id, username, rol, usr_status, must_change_password`,
-      [newPassword, id]
+      `UPDATE users SET password=$1, must_change_password=FALSE WHERE id=$2
+       RETURNING id, username, rol, usr_status, must_change_password`,
+      [hashedPassword, id]
     );
 
     if (result.rows.length === 0) {
@@ -379,7 +386,10 @@ app.put('/users/:id/password', async (req, res) => {
 });
 
 
+
 // Login
+const jwt = require('jsonwebtoken');
+
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
@@ -392,16 +402,16 @@ app.post('/login', async (req, res) => {
 
     const user = result.rows[0];
 
-    // Verificar estado del usuario
+    // Verificar estado
     if (user.usr_status !== 'activo') {
       return res.status(403).send(`Usuario ${user.usr_status}, no puede iniciar sesión`);
     }
 
-    // Validar contraseña
-    if (user.password !== password) {
+    // Comparar contraseña con bcrypt
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
       const attempts = user.failed_attempts + 1;
 
-      // Si llega a 3 intentos, bloquear usuario
       if (attempts >= 3) {
         await pool.query(
           'UPDATE users SET usr_status=$1, failed_attempts=$2 WHERE id=$3',
@@ -417,17 +427,18 @@ app.post('/login', async (req, res) => {
       }
     }
 
-    // Si la contraseña es correcta → resetear intentos fallidos
-    await pool.query(
-      'UPDATE users SET failed_attempts=0 WHERE id=$1',
-      [user.id]
+    // Resetear intentos fallidos
+    await pool.query('UPDATE users SET failed_attempts=0 WHERE id=$1', [user.id]);
+
+    // Generar token JWT
+    const token = jwt.sign(
+      { id: user.id, username: user.username, rol: user.rol },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
     );
 
     res.json({
-      id: user.id,
-      username: user.username,
-      rol: user.rol,
-      usr_status: user.usr_status,
+      token,
       must_change_password: user.must_change_password
     });
   } catch (err) {
@@ -435,6 +446,7 @@ app.post('/login', async (req, res) => {
     res.status(500).send('Error en login');
   }
 });
+
 
 // Cambiar estado de un usuario (solo admin)
 app.put('/users/:id/status', async (req, res) => {
@@ -471,6 +483,33 @@ app.put('/users/:id/status', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send('Error al cambiar estado del usuario');
+  }
+});
+
+
+// Listar todos los usuarios con sus roles y estados
+app.get('/users', async (req, res) => {
+  const { adminId } = req.query;
+
+  try {
+    // Validar que el solicitante sea admin
+    const adminCheck = await pool.query('SELECT rol FROM users WHERE id=$1', [adminId]);
+    if (adminCheck.rows.length === 0) {
+      return res.status(403).send('Admin no encontrado');
+    }
+    if (adminCheck.rows[0].rol !== 'admin') {
+      return res.status(403).send('Solo un usuario con rol admin puede listar usuarios');
+    }
+
+    // Listar todos los usuarios
+    const result = await pool.query(
+      'SELECT id, username, rol, usr_status, must_change_password, created_at FROM users ORDER BY id'
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error al listar usuarios');
   }
 });
 
