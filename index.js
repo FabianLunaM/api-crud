@@ -1143,8 +1143,6 @@ app.get('/interactions/search', authenticateToken, async (req, res) => {
 // =====================================================================================================================
 
 // Login
-const jwt = require('jsonwebtoken');
-
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
