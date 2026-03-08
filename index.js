@@ -19,14 +19,14 @@ app.get('/', (req, res) => {
 });
 
 
-// =======================
+// =================================================================================================
 // CRUD para PATIENTS
-// =======================
+// =================================================================================================
 
-// Listar todos los pacientes
+// Listar todos los pacientes con 4 columnas
 app.get('/patients', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM patients ORDER BY id');
+    const result = await pool.query('SELECT id, name, phone, created_at FROM patients ORDER BY id');
     res.json(result.rows);
   } catch (err) {
     console.error(err);
@@ -35,32 +35,54 @@ app.get('/patients', async (req, res) => {
 });
 
 
-// Listar pacientes filtrando por nombre
+// filtrando por nombre o celular con 4 columnas
 app.get('/patients/search', async (req, res) => {
-  const { name } = req.query;
+  const { name, phone } = req.query;
 
-  if (!name) {
-    return res.status(400).send('Debe enviar el parámetro name');
+  if (!name && !phone) {
+    return res.status(400).send('Debe enviar al menos un parámetro: name o phone');
   }
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM patients WHERE LOWER(name) LIKE LOWER($1) ORDER BY id',
-      [`%${name}%`]
-    );
+    let query = 'SELECT id, name, phone, created_at FROM patients WHERE 1=1';
+    const values = [];
+    let idx = 1;
+
+    if (name) {
+      query += ` AND LOWER(name) LIKE LOWER($${idx++})`;
+      values.push(`%${name}%`);
+    }
+
+    if (phone) {
+      query += ` AND phone LIKE $${idx++}`;
+      values.push(`%${phone}%`);
+    }
+
+    query += ' ORDER BY id';
+
+    const result = await pool.query(query, values);
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al buscar pacientes por nombre');
+    res.status(500).send('Error al buscar pacientes');
   }
 });
 
 
-// Crear un nuevo paciente (CREATE)
-app.post('/patients', async (req, res) => {
+// Crear un nuevo paciente (CREATE) solicita name y phone
+app.post('/patients', authenticateToken, async (req, res) => {
   const { name, phone } = req.body;
 
   try {
+    // Validar rol del usuario logueado
+    const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
+    if (currentUser.rows.length === 0) {
+      return res.status(401).send("Usuario logueado no encontrado");
+    }
+    if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
+      return res.status(403).send("Solo usuarios con rol admin o agenda pueden crear pacientes");
+    }
+    
     // Validar campos obligatorios
     if (!name || !phone) {
       return res.status(400).send('Los campos name y phone son obligatorios');
@@ -91,13 +113,20 @@ app.post('/patients', async (req, res) => {
 });
 
 
-// Actualizar un paciente (UPDATE)
-// Solo permite modificar name y phone
-app.put('/patients/:id', async (req, res) => {
+// Actualizar un paciente (UPDATE) Solo permite modificar name y phone
+app.put('/patients/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { name, phone } = req.body;
 
   try {
+     const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
+    if (currentUser.rows.length === 0) {
+      return res.status(401).send("Usuario logueado no encontrado");
+    }
+    if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
+      return res.status(403).send("Solo usuarios con rol admin o agenda pueden editar pacientes");
+    }
+  
     const result = await pool.query(
       'UPDATE patients SET name=$1, phone=$2 WHERE id=$3 RETURNING *',
       [name, phone, id]
@@ -116,10 +145,23 @@ app.put('/patients/:id', async (req, res) => {
 
 
 // Eliminar un paciente (DELETE)
-app.delete('/patients/:id', async (req, res) => {
+app.delete('/patients/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
+
   try {
-    await pool.query('DELETE FROM patients WHERE id=$1', [id]);
+    const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
+    if (currentUser.rows.length === 0) {
+      return res.status(401).send("Usuario logueado no encontrado");
+    }
+    if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
+      return res.status(403).send("Solo usuarios con rol admin o agenda pueden eliminar pacientes");
+    }
+    
+    const result = await pool.query('DELETE FROM patients WHERE id=$1', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).send(`Paciente con id ${id} no encontrado`);
+    }
+    
     res.send(`Paciente con id ${id} eliminado`);
   } catch (err) {
     console.error(err);
@@ -128,15 +170,15 @@ app.delete('/patients/:id', async (req, res) => {
 });
 
 
-// =======================
+// ========================================================================================
 // CRUD para APPOINTMENTS
-// =======================
+// ========================================================================================
 
-// Listar citas de la semana actual
+// Listar citas de la semana, actual 5 columnas
 app.get('/appointments/week', async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT a.*, p.name AS patient_name
+      SELECT a.time, p.name AS patient_name, p.phone AS patient_phone, a.reason, a.status
       FROM appointments a
       JOIN patients p ON a.patient_id = p.id
       WHERE date >= date_trunc('week', CURRENT_DATE)
@@ -151,7 +193,7 @@ app.get('/appointments/week', async (req, res) => {
 });
 
 
-// Listar citas entre fecha inicial y final
+// Listar citas entre fecha inicial y final, 5 columnas
 app.get('/appointments/range', async (req, res) => {
   const { startDate, endDate } = req.query;
 
@@ -161,7 +203,7 @@ app.get('/appointments/range', async (req, res) => {
 
   try {
     const result = await pool.query(`
-      SELECT a.*, p.name AS patient_name
+      SELECT a.time, p.name AS patient_name, p.phone AS patient_phone, a.reason, a.status
       FROM appointments a
       JOIN patients p ON a.patient_id = p.id
       WHERE date BETWEEN $1 AND $2
@@ -176,157 +218,686 @@ app.get('/appointments/range', async (req, res) => {
 });
 
 
-// Listar citas del día actual
-app.get('/appointments/today', async (req, res) => {
+// Tabla de slots para la fecha actual ---------------------------------------------------------
+app.get('/schedule/today', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT a.*, p.name AS patient_name
-      FROM appointments a
-      JOIN patients p ON a.patient_id = p.id
-      WHERE date = CURRENT_DATE
-      ORDER BY a.time
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Error al listar citas del día');
-  }
-});
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const requestedDate = new Date(today);
+    const dayOfWeek = requestedDate.getDay(); // 0=Domingo, 6=Sábado
 
-
-// Crear una nueva cita (CREATE)
-app.post('/appointments', async (req, res) => {
-  const { patient_id, date, time, reason, notes, duration } = req.body;
-
-  try {
-    // Validar que el paciente exista
-    const patientCheck = await pool.query('SELECT id FROM patients WHERE id=$1', [patient_id]);
-    if (patientCheck.rows.length === 0) {
-      return res.status(400).send('El paciente no existe');
-    }
-
-    // Validar campos obligatorios
-    if (!date || !time || !reason) {
-      return res.status(400).send('Campos obligatorios: date, time, reason');
-    }
-
-    // Validar duración
-    let finalDuration = duration || 30; // por defecto 30
-    if (finalDuration < 30 || finalDuration % 30 !== 0) {
-      return res.status(400).send('La duración debe ser múltiplo de 30 y mínimo 30');
-    }
-
-    // Insertar cita (id y created_at se llenan automáticamente)
+    // Consultar citas de hoy
     const result = await pool.query(
-      `INSERT INTO appointments (patient_id, date, time, reason, notes, duration)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [patient_id, date, time, reason, notes || null, finalDuration]
+      `SELECT a.time, a.duration, p.name AS patient_name, p.phone AS patient_phone, a.reason, a.status
+       FROM appointments a
+       JOIN patients p ON a.patient_id = p.id
+       WHERE a.date=$1`,
+      [today]
     );
+    const appointments = result.rows;
 
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Error al crear cita');
-  }
-});
-
-
-// Actualizar cita (UPDATE)
-// Solo permite modificar patient_id, date, time, reason y notes
-app.put('/appointments/:id', async (req, res) => {
-  const { id } = req.params;
-  const { patient_id, date, time, reason, notes } = req.body;
-
-  try {
-    // Validar que la cita exista
-    const appointmentCheck = await pool.query('SELECT * FROM appointments WHERE id=$1', [id]);
-    if (appointmentCheck.rows.length === 0) {
-      return res.status(404).send(`Cita con id ${id} no encontrada`);
-    }
-
-    // Si se envía patient_id, validar que el paciente exista
-    if (patient_id) {
-      const patientCheck = await pool.query('SELECT id FROM patients WHERE id=$1', [patient_id]);
-      if (patientCheck.rows.length === 0) {
-        return res.status(400).send('El paciente seleccionado no existe');
+    // Validar domingo
+    if (dayOfWeek === 0) {
+      if (appointments.length === 0) {
+        return res.json({ mensaje: "Sin citas disponibles en domingo" });
+      } else {
+        return res.json(appointments.map(a => ({
+          time: a.time,
+          patient_name: a.patient_name,
+          patient_phone: a.patient_phone,
+          reason: a.reason,
+          status: a.status,
+          nota: "Domingo"
+        })));
       }
     }
 
-    // Actualizar solo los campos permitidos
+    // Validar feriado
+    const feriadoCheck = await pool.query('SELECT 1 FROM feriados WHERE fecha=$1', [today]);
+    if (feriadoCheck.rows.length > 0) {
+      if (appointments.length === 0) {
+        return res.json({ mensaje: "Sin citas disponibles en feriado" });
+      } else {
+        return res.json(appointments.map(a => ({
+          time: a.time,
+          patient_name: a.patient_name,
+          patient_phone: a.patient_phone,
+          reason: a.reason,
+          status: a.status,
+          nota: "Feriado"
+        })));
+      }
+    }
+
+    // Definir slots normales
+    let slots = [];
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+      slots = [
+        "09:00","09:30","10:00","10:30","11:00","11:30",
+        "14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00"
+      ];
+    } else if (dayOfWeek === 6) {
+      slots = ["09:00","09:30","10:00","10:30","11:00","11:30"];
+    }
+
+    // Expandir citas según duración
+    const occupiedSlots = [];
+    appointments.forEach(a => {
+      let [h, m] = a.time.split(':').map(Number);
+      for (let i = 0; i < a.duration/30; i++) {
+        occupiedSlots.push({
+          slot: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,
+          patient_name: a.patient_name,
+          patient_phone: a.patient_phone,
+          reason: a.reason,
+          status: a.status
+        });
+        m += 30;
+        if (m === 60) { h += 1; m = 0; }
+      }
+    });
+
+    // Construir tabla de slots normales
+    const schedule = slots.map(slot => {
+      const appt = occupiedSlots.find(o => o.slot === slot);
+      if (appt) {
+        return {
+          time: slot,
+          patient_name: appt.patient_name,
+          patient_phone: appt.patient_phone,
+          reason: appt.reason,
+          status: appt.status
+        };
+      } else {
+        return {
+          time: slot,
+          patient_name: "Disponible",
+          patient_phone: "",
+          reason: "",
+          status: "",
+          accion: "registrar"
+        };
+      }
+    });
+
+    // Incluir citas fuera de horario
+    const outOfRange = appointments.filter(a => {
+      let [h, m] = a.time.split(':').map(Number);
+      const slotStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      return !slots.includes(slotStr);
+    }).map(a => ({
+      time: a.time,
+      patient_name: a.patient_name,
+      patient_phone: a.patient_phone,
+      reason: a.reason,
+      status: a.status,
+      nota: "Fuera de horario habitual"
+    }));
+
+    res.json([...schedule, ...outOfRange]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error al generar tabla de horarios para hoy");
+  }
+});
+
+
+// Tabla de slots por horarios para cualquier fecha, con validación ±30 días (navegacion por fechas)--
+app.get('/schedule/:date', authenticateToken, async (req, res) => {
+  const { date } = req.params;
+  try {
+    const requestedDate = new Date(date);
+    const today = new Date();
+    const diffDays = Math.floor((requestedDate - today) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < -30 || diffDays > 30) {
+      return res.status(400).send("Solo se permite navegar hasta 30 días atrás o adelante");
+    }
+
+    const dayOfWeek = requestedDate.getDay(); // 0=Domingo, 6=Sábado
+
+    // Consultar citas de ese día
     const result = await pool.query(
-      `UPDATE appointments
-       SET patient_id = COALESCE($1, patient_id),
-           date = COALESCE($2, date),
-           time = COALESCE($3, time),
-           reason = COALESCE($4, reason),
-           notes = COALESCE($5, notes)
-       WHERE id=$6
+      `SELECT a.time, a.duration, p.name AS patient_name, p.phone AS patient_phone, a.reason, a.status
+       FROM appointments a
+       JOIN patients p ON a.patient_id = p.id
+       WHERE a.date=$1`,
+      [date]
+    );
+    const appointments = result.rows;
+
+    // Validar domingo
+    if (dayOfWeek === 0) {
+      if (appointments.length === 0) {
+        return res.json({ mensaje: "Sin citas disponibles en domingo" });
+      } else {
+        return res.json(appointments.map(a => ({
+          time: a.time,
+          patient_name: a.patient_name,
+          patient_phone: a.patient_phone,
+          reason: a.reason,
+          status: a.status,
+          nota: "Domingo"
+        })));
+      }
+    }
+
+    // Validar feriado
+    const feriadoCheck = await pool.query('SELECT 1 FROM feriados WHERE fecha=$1', [date]);
+    if (feriadoCheck.rows.length > 0) {
+      if (appointments.length === 0) {
+        return res.json({ mensaje: "Sin citas disponibles en feriado" });
+      } else {
+        return res.json(appointments.map(a => ({
+          time: a.time,
+          patient_name: a.patient_name,
+          patient_phone: a.patient_phone,
+          reason: a.reason,
+          status: a.status,
+          nota: "Feriado"
+        })));
+      }
+    }
+
+    // Definir slots normales
+    let slots = [];
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+      slots = [
+        "09:00","09:30","10:00","10:30","11:00","11:30",
+        "14:30","15:00","15:30","16:00","16:30","17:00","17:30","18:00","18:30","19:00"
+      ];
+    } else if (dayOfWeek === 6) {
+      slots = ["09:00","09:30","10:00","10:30","11:00","11:30"];
+    }
+
+    // Expandir citas según duración
+    const occupiedSlots = [];
+    appointments.forEach(a => {
+      let [h, m] = a.time.split(':').map(Number);
+      for (let i = 0; i < a.duration/30; i++) {
+        occupiedSlots.push({
+          slot: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,
+          patient_name: a.patient_name,
+          patient_phone: a.patient_phone,
+          reason: a.reason,
+          status: a.status
+        });
+        m += 30;
+        if (m === 60) { h += 1; m = 0; }
+      }
+    });
+
+    // Construir tabla de slots normales
+    const schedule = slots.map(slot => {
+      const appt = occupiedSlots.find(o => o.slot === slot);
+      if (appt) {
+        return {
+          time: slot,
+          patient_name: appt.patient_name,
+          patient_phone: appt.patient_phone,
+          reason: appt.reason,
+          status: appt.status
+        };
+      } else {
+        return {
+          time: slot,
+          patient_name: "Disponible",
+          patient_phone: "",
+          reason: "",
+          status: "",
+          accion: "registrar"
+        };
+      }
+    });
+
+    // Incluir citas fuera de horario
+    const outOfRange = appointments.filter(a => {
+      let [h, m] = a.time.split(':').map(Number);
+      const slotStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      return !slots.includes(slotStr);
+    }).map(a => ({
+      time: a.time,
+      patient_name: a.patient_name,
+      patient_phone: a.patient_phone,
+      reason: a.reason,
+      status: a.status,
+      nota: "Fuera de horario habitual"
+    }));
+
+    res.json([...schedule, ...outOfRange]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error al generar tabla de horarios");
+  }
+});
+
+
+//Resgistro de feriados
+app.post('/feriados', authenticateToken, async (req, res) => {
+  const { fecha, descripcion } = req.body;
+  if (req.user.rol !== 'admin') {
+    return res.status(403).send('Solo admin puede registrar feriados');
+  }
+  try {
+    const result = await pool.query(
+      'INSERT INTO feriados (fecha, descripcion) VALUES ($1, $2) RETURNING *',
+      [fecha, descripcion]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error al registrar feriado');
+  }
+});
+
+
+//Registra cita en slot disponnible
+app.post('/appointments/slot', authenticateToken, async (req, res) => {
+  const { date, time, patient_id, reason } = req.body;
+
+  try {
+    // Validar rol del usuario logueado
+    const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
+    if (currentUser.rows.length === 0) {
+      return res.status(401).send("Usuario logueado no encontrado");
+    }
+    if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
+      return res.status(403).send("Solo usuarios con rol admin o agenda pueden registrar citas en los slots");
+    }
+    
+    // Validar paciente
+    const patientCheck = await pool.query('SELECT id, name FROM patients WHERE id=$1', [patient_id]);
+    if (patientCheck.rows.length === 0) {
+      return res.status(400).send('Paciente no existe');
+    }
+
+    // Validar que no exista cita en ese slot
+    const apptCheck = await pool.query('SELECT id FROM appointments WHERE date=$1 AND time=$2', [date, time]);
+    if (apptCheck.rows.length > 0) {
+      return res.status(400).send('Ese horario ya está ocupado');
+    }
+
+    // Insertar cita
+    const result = await pool.query(
+      `INSERT INTO appointments (patient_id, date, time, reason, status, duration, created_at)
+       VALUES ($1, $2, $3, $4, 'pendiente', 30, NOW())
        RETURNING *`,
-      [patient_id || null, date || null, time || null, reason || null, notes || null, id]
+      [patient_id, date, time, reason]
     );
 
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al actualizar cita');
+    res.status(500).send('Error al registrar cita');
   }
 });
 
-// Marcar cita como completada
-app.put('/appointments/:id/complete', async (req, res) => {
+
+//Edita citas canceladas o rechazadas
+app.put('/appointments/:id/edit', authenticateToken, async (req, res) => {
   const { id } = req.params;
+  const { patient_id, reason } = req.body;
+
+  try {
+    // Validar rol del usuario logueado
+    const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
+    if (currentUser.rows.length === 0) {
+      return res.status(401).send("Usuario logueado no encontrado");
+    }
+    if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
+      return res.status(403).send("Solo usuarios con rol admin o agenda pueden editar citas");
+    }
+
+    // Verificar estado de la cita
+    const apptCheck = await pool.query('SELECT status FROM appointments WHERE id=$1', [id]);
+    if (apptCheck.rows.length === 0) return res.status(404).send('Cita no encontrada');
+
+    const currentStatus = apptCheck.rows[0].status.toLowerCase();
+    if (currentStatus !== 'rechazado' && currentStatus !== 'cancelado') {
+      return res.status(400).send('Solo se pueden editar citas en estado rechazado o cancelado');
+    }
+
+    // Construir campos dinámicos
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (patient_id) {
+      // Validar paciente y traer phone
+      const patientCheck = await pool.query('SELECT id, name, phone FROM patients WHERE id=$1', [patient_id]);
+      if (patientCheck.rows.length === 0) {
+        return res.status(400).send('Paciente no existe');
+      }
+      fields.push(`patient_id=$${idx++}`);
+      values.push(patient_id);
+    }
+
+    if (reason) {
+      fields.push(`reason=$${idx++}`);
+      values.push(reason);
+    }
+
+    // Siempre actualizar estado a pendiente
+    fields.push(`status=$${idx++}`);
+    values.push('pendiente');
+
+    if (fields.length === 0) {
+      return res.status(400).send('Debe enviar al menos un campo para actualizar');
+    }
+
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE appointments SET ${fields.join(', ')} WHERE id=$${idx} RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) return res.status(404).send('Cita no encontrada');
+
+    // Traer datos del paciente para mostrar name y phone
+    const patientData = await pool.query(
+      'SELECT name, phone FROM patients WHERE id=$1',
+      [result.rows[0].patient_id]
+    );
+
+    const response = {
+      time: result.rows[0].time,
+      patient_name: patientData.rows[0].name,
+      patient_phone: patientData.rows[0].phone,
+      reason: result.rows[0].reason,
+      status: result.rows[0].status
+    };
+
+    res.json(response);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error al editar cita');
+  }
+});
+
+
+// Muestra fecha actual y conteo de citas
+app.get('/schedule/today/summary', authenticateToken, async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+    const result = await pool.query(
+      'SELECT COUNT(*) AS total FROM appointments WHERE date=$1',
+      [today]
+    );
+
+    res.json({
+      date: today,
+      total_citas: parseInt(result.rows[0].total, 10)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error al generar resumen de citas para hoy");
+  }
+});
+
+
+// Muestra cualquier fecha y conteo de citas, con validación ±30 días
+app.get('/schedule/:date/summary', authenticateToken, async (req, res) => {
+  const { date } = req.params;
+  try {
+    const requestedDate = new Date(date);
+    const today = new Date();
+    const diffDays = Math.floor((requestedDate - today) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < -30 || diffDays > 30) {
+      return res.status(400).send("Solo se permite navegar hasta 30 días atrás o adelante");
+    }
+
+    const result = await pool.query(
+      'SELECT COUNT(*) AS total FROM appointments WHERE date=$1',
+      [date]
+    );
+
+    res.json({
+      date: date,
+      total_citas: parseInt(result.rows[0].total, 10)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error al generar resumen de citas");
+  }
+});
+
+//Filtro de citas
+app.get('/schedule/:date/filter', authenticateToken, async (req, res) => {
+  const { date } = req.params;
+  const { time, patient_name, patient_phone, status } = req.query;
+
+  try {
+    // Base query
+    let query = `
+      SELECT a.time, p.name AS patient_name, p.phone AS patient_phone, a.reason, a.status
+      FROM appointments a
+      JOIN patients p ON a.patient_id = p.id
+      WHERE a.date=$1
+    `;
+    const values = [date];
+    let idx = 2;
+
+    // Filtros dinámicos
+    if (time) {
+      query += ` AND a.time=$${idx++}`;
+      values.push(time);
+    }
+    if (patient_name) {
+      query += ` AND p.name ILIKE $${idx++}`;
+      values.push(`%${patient_name}%`);
+    }
+    if (patient_phone) {
+      query += ` AND p.phone ILIKE $${idx++}`;
+      values.push(`%${patient_phone}%`);
+    }
+    if (status) {
+      query += ` AND a.status ILIKE $${idx++}`;
+      values.push(`%${status}%`);
+    }
+
+    query += ` ORDER BY a.time`;
+
+    const result = await pool.query(query, values);
+
+    // Si no hay resultados, devolver mensaje
+    if (result.rows.length === 0) {
+      return res.json({ mensaje: "No se encontraron citas con esos filtros" });
+    }
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error al filtrar citas");
+  }
+});
+
+
+//Registra citas, registro maestro
+app.post('/appointments/master', authenticateToken, async (req, res) => {
+  const { date, time, patient_id, reason, duration } = req.body;
+
+  try {
+    // Validar rol del usuario logueado
+    const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
+    if (currentUser.rows.length === 0) {
+      return res.status(401).send("Usuario logueado no encontrado");
+    }
+    if (currentUser.rows[0].rol !== "admin") {
+      return res.status(403).send("Solo usuarios con rol admin pueden usar el registro maestro");
+    }
+
+    // Validar paciente
+    const patientCheck = await pool.query('SELECT id, name, phone FROM patients WHERE id=$1', [patient_id]);
+    if (patientCheck.rows.length === 0) {
+      return res.status(400).send('Paciente no existe');
+    }
+
+    // Duración en minutos (mínimo 30, múltiplos de 30)
+    const dur = duration && duration >= 30 && duration % 30 === 0 ? duration : 30;
+    const blocksNeeded = dur / 30;
+
+    // Generar lista de bloques que ocupará la cita
+    const startHour = time;
+    const slots = [];
+    let [h, m] = startHour.split(':').map(Number);
+    for (let i = 0; i < blocksNeeded; i++) {
+      slots.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+      m += 30;
+      if (m === 60) { h += 1; m = 0; }
+    }
+
+    // Validar que ninguno de los bloques esté ocupado
+    const apptCheck = await pool.query(
+      'SELECT time FROM appointments WHERE date=$1 AND time = ANY($2::text[])',
+      [date, slots]
+    );
+    if (apptCheck.rows.length > 0) {
+      return res.status(400).send(`Los siguientes horarios ya están ocupados: ${apptCheck.rows.map(a => a.time).join(', ')}`);
+    }
+
+    // Registrar cita (solo se guarda el bloque inicial, duración indica cuántos ocupa)
+    const result = await pool.query(
+      `INSERT INTO appointments (patient_id, date, time, reason, status, duration, created_at)
+       VALUES ($1, $2, $3, $4, 'pendiente', $5, NOW())
+       RETURNING *`,
+      [patient_id, date, time, reason, dur]
+    );
+
+    res.json({
+      id: result.rows[0].id,
+      date: result.rows[0].date,
+      time: result.rows[0].time,
+      patient_name: patientCheck.rows[0].name,
+      patient_phone: patientCheck.rows[0].phone,
+      reason: result.rows[0].reason,
+      status: result.rows[0].status,
+      duration: result.rows[0].duration
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error al registrar cita maestra');
+  }
+});
+
+// Muestra nota de una cita
+app.get('/appointments/:id/notes', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(
+      'SELECT notes FROM appointments WHERE id=$1',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).send("Cita no encontrada");
+    }
+    res.json({ notes: result.rows[0].notes || "" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error al obtener notas");
+  }
+});
+
+// Editar nota de una cita
+app.put('/appointments/:id/notes', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { notes } = req.body;
 
   try {
     const result = await pool.query(
-      'UPDATE appointments SET status=$1 WHERE id=$2 AND status=$3 RETURNING *',
-      ['completada', id, 'pendiente']
+      'UPDATE appointments SET notes=$1 WHERE id=$2 RETURNING id, notes',
+      [notes, id]
     );
-
     if (result.rows.length === 0) {
-      return res.status(404).send(`Cita con id ${id} no encontrada o no está pendiente`);
+      return res.status(404).send("Cita no encontrada");
     }
-
-    res.json(result.rows[0]);
+    res.json({
+      mensaje: "Notas actualizadas correctamente",
+      id: result.rows[0].id,
+      notes: result.rows[0].notes
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al marcar cita como completada');
+    res.status(500).send("Error al actualizar notas");
   }
 });
 
-// Marcar cita como rechazada
-app.put('/appointments/:id/reject', async (req, res) => {
+
+// Editar estado de una cita
+app.put('/appointments/:id/status', authenticateToken, async (req, res) => {
   const { id } = req.params;
+  const { status } = req.body;
+
+  // Estados permitidos
+  const allowedStatuses = ["pendiente", "cancelado", "rechazado", "completado"];
 
   try {
+    // Verificar cita existente
     const result = await pool.query(
-      'UPDATE appointments SET status=$1 WHERE id=$2 AND status=$3 RETURNING *',
-      ['rechazada', id, 'pendiente']
+      'SELECT status FROM appointments WHERE id=$1',
+      [id]
     );
-
     if (result.rows.length === 0) {
-      return res.status(404).send(`Cita con id ${id} no encontrada o no está pendiente`);
+      return res.status(404).send("Cita no encontrada");
     }
 
-    res.json(result.rows[0]);
+    const currentStatus = result.rows[0].status;
+
+    // Validar que si ya está completado, no se pueda cambiar
+    if (currentStatus === "completado" && status !== "completado") {
+      return res.status(400).send("Las citas completadas no se pueden modificar");
+    }
+
+    // Validar nuevo estado
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).send("Estado inválido. Solo se permite: pendiente, cancelado, rechazado, completado");
+    }
+
+    // Actualizar estado
+    const update = await pool.query(
+      'UPDATE appointments SET status=$1 WHERE id=$2 RETURNING id, status',
+      [status, id]
+    );
+
+    res.json({
+      mensaje: "Estado actualizado correctamente",
+      id: update.rows[0].id,
+      status: update.rows[0].status
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al marcar cita como rechazada');
+    res.status(500).send("Error al actualizar estado de la cita");
   }
 });
 
-// =======================
+
+// =====================================================================================================================
 // Usuarios
-// =======================
+// =====================================================================================================================
 
 // Creación de usuarios
 const bcrypt = require('bcrypt');
 const saltRounds = 10;
 
-app.post('/users', async (req, res) => {
+app.post('/users', authenticateToken, async (req, res) => {
   const { username, rol } = req.body;
 
   try {
+    // Validar que el usuario logueado sea admin
+    const currentUser = await pool.query(
+      'SELECT rol FROM users WHERE id=$1',
+      [req.user.id] // req.user.id viene del token JWT
+    );
+
+    if (currentUser.rows.length === 0) {
+      return res.status(401).send("Usuario logueado no encontrado");
+    }
+
+    if (currentUser.rows[0].rol !== "admin") {
+      return res.status(403).send("Solo un usuario con rol admin puede crear usuarios");
+    }
+    
     if (!username || !rol) {
       return res.status(400).send('Campos obligatorios: username y rol');
     }
@@ -354,24 +925,87 @@ app.post('/users', async (req, res) => {
 });
 
 
-// Cambio de contraseña
-app.put('/users/:id/password', async (req, res) => {
+// Editar rol de un usuario (solo admin puede hacerlo)
+app.put('/users/:id/rol', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { newPassword } = req.body;
+  const { rol } = req.body;
 
-  // Validar complejidad
-  const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{10,}$/;
-  if (!regex.test(newPassword)) {
-    return res.status(400).send('La contraseña debe tener mínimo 10 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales');
-  }
+  // Roles permitidos
+  const allowedRoles = ["admin", "agenda", "consulta"];
 
   try {
-    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+    // Verificar que el usuario logueado sea admin
+    const currentUser = await pool.query(
+      'SELECT rol FROM users WHERE id=$1',
+      [req.user.id] // req.user.id viene del token JWT
+    );
 
+    if (currentUser.rows.length === 0) {
+      return res.status(401).send("Usuario logueado no encontrado");
+    }
+
+    if (currentUser.rows[0].rol !== "admin") {
+      return res.status(403).send("Solo un usuario con rol admin puede cambiar roles");
+    }
+
+    // Validar nuevo rol
+    if (!allowedRoles.includes(rol)) {
+      return res.status(400).send("Rol inválido. Solo se permite: admin, agenda, consulta");
+    }
+
+    // Verificar usuario a modificar
+    const targetUser = await pool.query(
+      'SELECT id, username, rol FROM users WHERE id=$1',
+      [id]
+    );
+    if (targetUser.rows.length === 0) {
+      return res.status(404).send("Usuario no encontrado");
+    }
+
+    // Actualizar rol
+    const update = await pool.query(
+      'UPDATE users SET rol=$1 WHERE id=$2 RETURNING id, username, rol',
+      [rol, id]
+    );
+
+    res.json({
+      mensaje: "Rol actualizado correctamente",
+      id: update.rows[0].id,
+      username: update.rows[0].username,
+      rol: update.rows[0].rol
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error al actualizar rol del usuario");
+  }
+});
+
+
+// Cambiar estado de un usuario (solo admin)
+app.put('/users/:id/status', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { newStatus } = req.body;
+
+  try {
+    // Validar que el usuario logueado sea admin
+    const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
+    if (currentUser.rows.length === 0) {
+      return res.status(401).send('Usuario logueado no encontrado');
+    }
+    if (currentUser.rows[0].rol !== 'admin') {
+      return res.status(403).send('Solo un usuario con rol admin puede cambiar estados');
+    }
+
+    // Validar nuevo estado
+    const validStatuses = ['activo', 'bloqueado', 'deshabilitado'];
+    if (!validStatuses.includes(newStatus)) {
+      return res.status(400).send('Estado inválido');
+    }
+
+    // Actualizar estado del usuario
     const result = await pool.query(
-      `UPDATE users SET password=$1, must_change_password=FALSE WHERE id=$2
-       RETURNING id, username, rol, usr_status, must_change_password`,
-      [hashedPassword, id]
+      'UPDATE users SET usr_status=$1 WHERE id=$2 RETURNING id, username, rol, usr_status',
+      [newStatus, id]
     );
 
     if (result.rows.length === 0) {
@@ -381,11 +1015,114 @@ app.put('/users/:id/password', async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al cambiar contraseña');
+    res.status(500).send('Error al cambiar estado del usuario');
   }
 });
 
 
+
+// Listar todos los usuarios con sus roles y estados
+app.get('/users', async (req, res) => {
+  const { adminId } = req.query;
+
+  try {
+    // Validar que el solicitante sea admin
+    const adminCheck = await pool.query('SELECT rol FROM users WHERE id=$1', [adminId]);
+    if (adminCheck.rows.length === 0) {
+      return res.status(403).send('Admin no encontrado');
+    }
+    if (adminCheck.rows[0].rol !== 'admin') {
+      return res.status(403).send('Solo un usuario con rol admin puede listar usuarios');
+    }
+
+    // Listar todos los usuarios
+    const result = await pool.query(
+      'SELECT id, username, rol, usr_status, created_at FROM users ORDER BY id'
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error al listar usuarios');
+  }
+});
+
+
+// =====================================================================================================================
+// Mensajes
+// =====================================================================================================================
+
+// Listar todas las interacciones con datos del paciente
+app.get('/interactions', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        i.patient_id AS id_patient,
+        i.message_in AS mensaje,
+        p.name AS patient_name,
+        p.phone AS patient_phone,
+        i.pushname AS nombre_whatsapp,
+        i.created_at AS fecha_envio
+      FROM interactions i
+      LEFT JOIN patients p ON i.patient_id = p.id
+      ORDER BY i.created_at DESC
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error al listar interacciones');
+  }
+});
+
+
+// Filtrar interacciones por nombre de paciente y/o teléfono
+app.get('/interactions/search', authenticateToken, async (req, res) => {
+  const { patient_name, patient_phone } = req.query;
+
+  if (!patient_name && !patient_phone) {
+    return res.status(400).send('Debe enviar al menos un parámetro: patient_name o patient_phone');
+  }
+
+  try {
+    let query = `
+      SELECT 
+        i.patient_id AS id_patient,
+        i.message_in AS mensaje,
+        p.name AS patient_name,
+        p.phone AS patient_phone,
+        i.pushname AS nombre_whatsapp,
+        i.created_at AS fecha_envio
+      FROM interactions i
+      LEFT JOIN patients p ON i.patient_id = p.id
+      WHERE 1=1
+    `;
+    const values = [];
+    let idx = 1;
+
+    if (patient_name) {
+      query += ` AND LOWER(p.name) LIKE LOWER($${idx++})`;
+      values.push(`%${patient_name}%`);
+    }
+
+    if (patient_phone) {
+      query += ` AND p.phone LIKE $${idx++}`;
+      values.push(`%${patient_phone}%`);
+    }
+
+    query += ' ORDER BY i.created_at DESC';
+
+    const result = await pool.query(query, values);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error al buscar interacciones');
+  }
+});
+
+// =====================================================================================================================
+// Autenticacion
+// =====================================================================================================================
 
 // Login
 const jwt = require('jsonwebtoken');
@@ -447,32 +1184,24 @@ app.post('/login', async (req, res) => {
   }
 });
 
-
-// Cambiar estado de un usuario (solo admin)
-app.put('/users/:id/status', async (req, res) => {
+// Cambio de contraseña primer inicio de sesion
+app.put('/users/:id/password', async (req, res) => {
   const { id } = req.params;
-  const { newStatus, adminId } = req.body;
+  const { newPassword } = req.body;
+
+  // Validar complejidad
+  const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{10,}$/;
+  if (!regex.test(newPassword)) {
+    return res.status(400).send('La contraseña debe tener mínimo 10 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales');
+  }
 
   try {
-    // Validar que el admin exista y tenga rol admin
-    const adminCheck = await pool.query('SELECT rol FROM users WHERE id=$1', [adminId]);
-    if (adminCheck.rows.length === 0) {
-      return res.status(403).send('Admin no encontrado');
-    }
-    if (adminCheck.rows[0].rol !== 'admin') {
-      return res.status(403).send('Solo un usuario con rol admin puede cambiar estados');
-    }
+    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
-    // Validar nuevo estado
-    const validStatuses = ['activo', 'bloqueado', 'deshabilitado'];
-    if (!validStatuses.includes(newStatus)) {
-      return res.status(400).send('Estado inválido');
-    }
-
-    // Actualizar estado del usuario
     const result = await pool.query(
-      'UPDATE users SET usr_status=$1 WHERE id=$2 RETURNING id, username, rol, usr_status',
-      [newStatus, id]
+      `UPDATE users SET password=$1, must_change_password=FALSE WHERE id=$2
+       RETURNING id, username, rol, usr_status, must_change_password`,
+      [hashedPassword, id]
     );
 
     if (result.rows.length === 0) {
@@ -482,82 +1211,49 @@ app.put('/users/:id/status', async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al cambiar estado del usuario');
+    res.status(500).send('Error al cambiar contraseña');
   }
 });
 
 
-// Listar todos los usuarios con sus roles y estados
-app.get('/users', async (req, res) => {
-  const { adminId } = req.query;
+// Cambio voluntario de contraseña (usuario autenticado)
+app.put('/users/:id/change-password', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { currentPassword, newPassword } = req.body;
+
+  // Validar que el usuario autenticado sea el mismo que quiere cambiar su contraseña
+  if (parseInt(id) !== req.user.id) {
+    return res.status(403).send("No puede cambiar la contraseña de otro usuario");
+  }
+
+  // Validar complejidad de la nueva contraseña
+  const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{10,}$/;
+  if (!regex.test(newPassword)) {
+    return res.status(400).send('La contraseña debe tener mínimo 10 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales');
+  }
 
   try {
-    // Validar que el solicitante sea admin
-    const adminCheck = await pool.query('SELECT rol FROM users WHERE id=$1', [adminId]);
-    if (adminCheck.rows.length === 0) {
-      return res.status(403).send('Admin no encontrado');
+    // Obtener usuario
+    const result = await pool.query('SELECT password FROM users WHERE id=$1', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).send("Usuario no encontrado");
     }
-    if (adminCheck.rows[0].rol !== 'admin') {
-      return res.status(403).send('Solo un usuario con rol admin puede listar usuarios');
+
+    const user = result.rows[0];
+
+    // Validar contraseña actual
+    const match = await bcrypt.compare(currentPassword, user.password);
+    if (!match) {
+      return res.status(400).send("La contraseña actual es incorrecta");
     }
 
-    // Listar todos los usuarios
-    const result = await pool.query(
-      'SELECT id, username, rol, usr_status, must_change_password, created_at FROM users ORDER BY id'
-    );
+    // Guardar nueva contraseña
+    const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+    await pool.query('UPDATE users SET password=$1 WHERE id=$2', [hashedPassword, id]);
 
-    res.json(result.rows);
+    res.json({ mensaje: "Contraseña cambiada correctamente" });
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al listar usuarios');
+    res.status(500).send("Error al cambiar contraseña");
   }
 });
-
-
-// =======================
-// Funcionalidades
-// =======================
-
-// Contador de citas del día
-app.get('/appointments/count/:date', async (req, res) => {
-  const { date } = req.params;
-
-  try {
-    const result = await pool.query(
-      'SELECT COUNT(*) AS total FROM appointments WHERE date = $1',
-      [date]
-    );
-
-    res.json({
-      date,
-      total: parseInt(result.rows[0].total, 10)
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Error al contar citas del día');
-  }
-});
-
-
-// Listar citas de un día específico
-app.get('/appointments/bydate/:date', async (req, res) => {
-  const { date } = req.params;
-
-  try {
-    const result = await pool.query(`
-      SELECT a.*, p.name AS patient_name
-      FROM appointments a
-      JOIN patients p ON a.patient_id = p.id
-      WHERE date = $1
-      ORDER BY a.time
-    `, [date]);
-
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Error al listar citas por fecha');
-  }
-});
-
-
-
