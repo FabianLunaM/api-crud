@@ -2,6 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 app.use(cors());
@@ -18,6 +19,23 @@ app.get('/', (req, res) => {
   res.send('API CRUD funcionando 🚀');
 });
 
+// Middleware para validar token JWT
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // formato: "Bearer <token>"
+
+  if (!token) {
+    return res.status(401).send('Token requerido');
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).send('Token inválido');
+    }
+    req.user = user; // aquí guardamos los datos del usuario (id, username, rol)
+    next();
+  });
+}
 
 // =================================================================================================
 // CRUD para PATIENTS
