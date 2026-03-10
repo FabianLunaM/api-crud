@@ -16,7 +16,7 @@ const pool = new Pool({
 
 // Endpoint de prueba
 app.get('/', (req, res) => {
-  res.send('API CRUD funcionando 🚀');
+  res.json({ mensaje:"API CRUD funcionando 🚀"});
 });
 
 // Middleware para validar token JWT
@@ -25,12 +25,12 @@ function authenticateToken(req, res, next) {
   const token = authHeader && authHeader.split(' ')[1]; // formato: "Bearer <token>"
 
   if (!token) {
-    return res.status(401).send('Token requerido');
+    return res.status(401).json({ error: "Token requerido" });
   }
 
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) {
-      return res.status(403).send('Token inválido');
+      return res.status(403).json({ error: "Token inválido" });
     }
     req.user = user; // aquí guardamos los datos del usuario (id, username, rol)
     next();
@@ -48,7 +48,7 @@ app.get('/patients', async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al listar pacientes');
+    res.status(500).json({ error: "Error al listar pacientes" });
   }
 });
 
@@ -58,7 +58,7 @@ app.get('/patients/search', async (req, res) => {
   const { name, phone } = req.query;
 
   if (!name && !phone) {
-    return res.status(400).send('Debe enviar al menos un parámetro: name o phone');
+    return res.status(400).json({ error: "Debe seleccionar nombre o celular" });
   }
 
   try {
@@ -82,7 +82,7 @@ app.get('/patients/search', async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al buscar pacientes');
+    res.status(500).json({ error: "Error al buscar pacientes" });
   }
 });
 
@@ -95,15 +95,15 @@ app.post('/patients', authenticateToken, async (req, res) => {
     // Validar rol del usuario logueado
     const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
     if (currentUser.rows.length === 0) {
-      return res.status(401).send("Usuario logueado no encontrado");
+      return res.status(401).json({ error: "Usuario logueado no encontrado" });
     }
     if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
-      return res.status(403).send("Solo usuarios con rol admin o agenda pueden crear pacientes");
+      return res.status(403).json({ error: "Solo usuarios con rol admin o agenda pueden crear pacientes" });
     }
     
     // Validar campos obligatorios
     if (!name || !phone) {
-      return res.status(400).send('Los campos name y phone son obligatorios');
+      return res.status(400).json({ error: "Los campos nombre y celular son obligatorios" });
     }
 
     // Buscar el último sender
@@ -126,7 +126,7 @@ app.post('/patients', authenticateToken, async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al crear paciente');
+    res.status(500).json({ error: "Error al crear paciente" });
   }
 });
 
@@ -139,10 +139,10 @@ app.put('/patients/:id', authenticateToken, async (req, res) => {
   try {
      const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
     if (currentUser.rows.length === 0) {
-      return res.status(401).send("Usuario logueado no encontrado");
+      return res.status(401).json({ error: "Usuario logueado no encontrado" });
     }
     if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
-      return res.status(403).send("Solo usuarios con rol admin o agenda pueden editar pacientes");
+      return res.status(403).json({ error: "Solo usuarios con rol admin o agenda pueden editar pacientes" });
     }
   
     const result = await pool.query(
@@ -151,13 +151,13 @@ app.put('/patients/:id', authenticateToken, async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).send(`Paciente con id ${id} no encontrado`);
+      return res.status(404).json({ error: `Paciente con id ${id} no encontrado` });
     }
 
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al actualizar paciente');
+    res.status(500).json({ error: "Error al actualizar paciente" });
   }
 });
 
@@ -169,21 +169,21 @@ app.delete('/patients/:id', authenticateToken, async (req, res) => {
   try {
     const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
     if (currentUser.rows.length === 0) {
-      return res.status(401).send("Usuario logueado no encontrado");
+      return res.status(401).json({ error: "Usuario logueado no encontrado" });
     }
     if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
-      return res.status(403).send("Solo usuarios con rol admin o agenda pueden eliminar pacientes");
+      return res.status(403).json({ error: "Solo usuarios con rol admin o agenda pueden eliminar pacientes" });
     }
     
     const result = await pool.query('DELETE FROM patients WHERE id=$1', [id]);
     if (result.rows.length === 0) {
-      return res.status(404).send(`Paciente con id ${id} no encontrado`);
+      return res.status(404).json({ error: `Paciente con id ${id} no encontrado` });
     }
     
-    res.send(`Paciente con id ${id} eliminado`);
+    res.json({ mensaje:`Paciente con id ${id} eliminado`});
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al eliminar paciente');
+    res.status(500).json({ error: "Error al eliminar paciente" });
   }
 });
 
@@ -206,7 +206,7 @@ app.get('/appointments/week', async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al listar citas de la semana');
+    res.status(500).json({ error: "Error al listar citas de la semana" });
   }
 });
 
@@ -216,7 +216,7 @@ app.get('/appointments/range', async (req, res) => {
   const { startDate, endDate } = req.query;
 
   if (!startDate || !endDate) {
-    return res.status(400).send('Debe enviar startDate y endDate');
+    return res.status(400).json({ error: "Debe seleccionar una fecha de inicio y una fecha de fin" });
   }
 
   try {
@@ -231,7 +231,7 @@ app.get('/appointments/range', async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al listar citas en rango');
+    res.status(500).json({ error: "Error al listar citas en rango" });
   }
 });
 
@@ -354,7 +354,7 @@ app.get('/schedule/today', authenticateToken, async (req, res) => {
     res.json([...schedule, ...outOfRange]);
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error al generar tabla de horarios para hoy");
+    res.status(500).json({ error: "Error al generar tabla de horarios para hoy" });
   }
 });
 
@@ -368,7 +368,7 @@ app.get('/schedule/:date', authenticateToken, async (req, res) => {
     const diffDays = Math.floor((requestedDate - today) / (1000 * 60 * 60 * 24));
 
     if (diffDays < -30 || diffDays > 30) {
-      return res.status(400).send("Solo se permite navegar hasta 30 días atrás o adelante");
+      return res.status(400).json({ error: "Solo se permite navegar hasta 30 días atrás o adelante" });
     }
 
     const dayOfWeek = requestedDate.getDay(); // 0=Domingo, 6=Sábado
@@ -484,7 +484,7 @@ app.get('/schedule/:date', authenticateToken, async (req, res) => {
     res.json([...schedule, ...outOfRange]);
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error al generar tabla de horarios");
+    res.status(500).json({ error: "Error al generar tabla de horarios" });
   }
 });
 
@@ -493,7 +493,7 @@ app.get('/schedule/:date', authenticateToken, async (req, res) => {
 app.post('/feriados', authenticateToken, async (req, res) => {
   const { fecha, descripcion } = req.body;
   if (req.user.rol !== 'admin') {
-    return res.status(403).send('Solo admin puede registrar feriados');
+    return res.status(403).json({ error: "Solo admin puede registrar feriados" });
   }
   try {
     const result = await pool.query(
@@ -503,7 +503,7 @@ app.post('/feriados', authenticateToken, async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al registrar feriado');
+    res.status(500).json({ error: "Error al registrar feriado" });
   }
 });
 
@@ -516,22 +516,22 @@ app.post('/appointments/slot', authenticateToken, async (req, res) => {
     // Validar rol del usuario logueado
     const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
     if (currentUser.rows.length === 0) {
-      return res.status(401).send("Usuario logueado no encontrado");
+      return res.status(401).json({ error: "Usuario logueado no encontrado" });
     }
     if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
-      return res.status(403).send("Solo usuarios con rol admin o agenda pueden registrar citas en los slots");
+      return res.status(403).json({ error: "Solo usuarios con rol admin o agenda pueden registrar citas" });
     }
     
     // Validar paciente
     const patientCheck = await pool.query('SELECT id, name FROM patients WHERE id=$1', [patient_id]);
     if (patientCheck.rows.length === 0) {
-      return res.status(400).send('Paciente no existe');
+      return res.status(400).json({ error: "Paciente no existe" });
     }
 
     // Validar que no exista cita en ese slot
     const apptCheck = await pool.query('SELECT id FROM appointments WHERE date=$1 AND time=$2', [date, time]);
     if (apptCheck.rows.length > 0) {
-      return res.status(400).send('Ese horario ya está ocupado');
+      return res.status(400).json({ error: "Ese horario ya está ocupado" });
     }
 
     // Insertar cita
@@ -545,7 +545,7 @@ app.post('/appointments/slot', authenticateToken, async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al registrar cita');
+    res.status(500).json({ error: "Error al registrar cita" });
   }
 });
 
@@ -559,19 +559,19 @@ app.put('/appointments/:id/edit', authenticateToken, async (req, res) => {
     // Validar rol del usuario logueado
     const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
     if (currentUser.rows.length === 0) {
-      return res.status(401).send("Usuario logueado no encontrado");
+      return res.status(401).json({ error: "Usuario logueado no encontrado" });
     }
     if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
-      return res.status(403).send("Solo usuarios con rol admin o agenda pueden editar citas");
+      return res.status(403).json({ error: "Solo usuarios con rol admin o agenda pueden editar citas" });
     }
 
     // Verificar estado de la cita
     const apptCheck = await pool.query('SELECT status FROM appointments WHERE id=$1', [id]);
-    if (apptCheck.rows.length === 0) return res.status(404).send('Cita no encontrada');
+    if (apptCheck.rows.length === 0) return res.status(404).json({ error: "Cita no encontrada" });
 
     const currentStatus = apptCheck.rows[0].status.toLowerCase();
     if (currentStatus !== 'rechazado' && currentStatus !== 'cancelado') {
-      return res.status(400).send('Solo se pueden editar citas en estado rechazado o cancelado');
+      return res.status(400).json({ error: "Solo se pueden editar citas en estado rechazado o cancelado" });
     }
 
     // Construir campos dinámicos
@@ -583,7 +583,7 @@ app.put('/appointments/:id/edit', authenticateToken, async (req, res) => {
       // Validar paciente y traer phone
       const patientCheck = await pool.query('SELECT id, name, phone FROM patients WHERE id=$1', [patient_id]);
       if (patientCheck.rows.length === 0) {
-        return res.status(400).send('Paciente no existe');
+        return res.status(400).json({ error:"Paciente no existe"});
       }
       fields.push(`patient_id=$${idx++}`);
       values.push(patient_id);
@@ -599,7 +599,7 @@ app.put('/appointments/:id/edit', authenticateToken, async (req, res) => {
     values.push('pendiente');
 
     if (fields.length === 0) {
-      return res.status(400).send('Debe enviar al menos un campo para actualizar');
+      return res.status(400).json({ error: "Debe enviar al menos un campo para actualizar" });
     }
 
     values.push(id);
@@ -609,7 +609,7 @@ app.put('/appointments/:id/edit', authenticateToken, async (req, res) => {
       values
     );
 
-    if (result.rows.length === 0) return res.status(404).send('Cita no encontrada');
+    if (result.rows.length === 0) return res.status(404).json({ error: "Cita no encontrada"});
 
     // Traer datos del paciente para mostrar name y phone
     const patientData = await pool.query(
@@ -628,7 +628,7 @@ app.put('/appointments/:id/edit', authenticateToken, async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al editar cita');
+    res.status(500).json({ error: "Error al editar cita" });
   }
 });
 
@@ -649,7 +649,7 @@ app.get('/schedule/today/summary', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error al generar resumen de citas para hoy");
+    res.status(500).json({ error: "Error al generar resumen de citas para hoy" });
   }
 });
 
@@ -663,7 +663,7 @@ app.get('/schedule/:date/summary', authenticateToken, async (req, res) => {
     const diffDays = Math.floor((requestedDate - today) / (1000 * 60 * 60 * 24));
 
     if (diffDays < -30 || diffDays > 30) {
-      return res.status(400).send("Solo se permite navegar hasta 30 días atrás o adelante");
+      return res.status(400).json({ error: "Solo se permite navegar hasta 30 días atrás o adelante" });
     }
 
     const result = await pool.query(
@@ -677,7 +677,7 @@ app.get('/schedule/:date/summary', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error al generar resumen de citas");
+    res.status(500).json({ error: "Error al generar resumen de citas" });
   }
 });
 
@@ -727,7 +727,7 @@ app.get('/schedule/:date/filter', authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error al filtrar citas");
+    res.status(500).json({ error: "Error al filtrar citas" });
   }
 });
 
@@ -740,16 +740,16 @@ app.post('/appointments/master', authenticateToken, async (req, res) => {
     // Validar rol del usuario logueado
     const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
     if (currentUser.rows.length === 0) {
-      return res.status(401).send("Usuario logueado no encontrado");
+      return res.status(401).json({ error: "Usuario logueado no encontrado" });
     }
     if (currentUser.rows[0].rol !== "admin") {
-      return res.status(403).send("Solo usuarios con rol admin pueden usar el registro maestro");
+      return res.status(403).json({ error: "Solo usuarios con rol admin pueden usar el registro maestro" });
     }
 
     // Validar paciente
     const patientCheck = await pool.query('SELECT id, name, phone FROM patients WHERE id=$1', [patient_id]);
     if (patientCheck.rows.length === 0) {
-      return res.status(400).send('Paciente no existe');
+      return res.status(400).json({ error: "Paciente no existe" });
     }
 
     // Duración en minutos (mínimo 30, múltiplos de 30)
@@ -772,7 +772,7 @@ app.post('/appointments/master', authenticateToken, async (req, res) => {
       [date, slots]
     );
     if (apptCheck.rows.length > 0) {
-      return res.status(400).send(`Los siguientes horarios ya están ocupados: ${apptCheck.rows.map(a => a.time).join(', ')}`);
+      return res.status(400).json({ error: `Los siguientes horarios ya están ocupados: ${apptCheck.rows.map(a => a.time).join(', ')}`});
     }
 
     // Registrar cita (solo se guarda el bloque inicial, duración indica cuántos ocupa)
@@ -795,7 +795,7 @@ app.post('/appointments/master', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al registrar cita maestra');
+    res.status(500).json({ error: "Error al registrar cita maestra" });
   }
 });
 
@@ -808,12 +808,12 @@ app.get('/appointments/:id/notes', authenticateToken, async (req, res) => {
       [id]
     );
     if (result.rows.length === 0) {
-      return res.status(404).send("Cita no encontrada");
+      return res.status(404).json({ error: "Cita no encontrada" });
     }
     res.json({ notes: result.rows[0].notes || "" });
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error al obtener notas");
+    res.status(500).json({ error: "Error al obtener notas" });
   }
 });
 
@@ -828,7 +828,7 @@ app.put('/appointments/:id/notes', authenticateToken, async (req, res) => {
       [notes, id]
     );
     if (result.rows.length === 0) {
-      return res.status(404).send("Cita no encontrada");
+      return res.status(404).json({ error: "Cita no encontrada" });
     }
     res.json({
       mensaje: "Notas actualizadas correctamente",
@@ -837,7 +837,7 @@ app.put('/appointments/:id/notes', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error al actualizar notas");
+    res.status(500).json({ error: "Error al actualizar notas" });
   }
 });
 
@@ -857,19 +857,19 @@ app.put('/appointments/:id/status', authenticateToken, async (req, res) => {
       [id]
     );
     if (result.rows.length === 0) {
-      return res.status(404).send("Cita no encontrada");
+      return res.status(404).json({ error: "Cita no encontrada" });
     }
 
     const currentStatus = result.rows[0].status;
 
     // Validar que si ya está completado, no se pueda cambiar
     if (currentStatus === "completado" && status !== "completado") {
-      return res.status(400).send("Las citas completadas no se pueden modificar");
+      return res.status(400).json({ error: "Las citas completadas no se pueden modificar" });
     }
 
     // Validar nuevo estado
     if (!allowedStatuses.includes(status)) {
-      return res.status(400).send("Estado inválido. Solo se permite: pendiente, cancelado, rechazado, completado");
+      return res.status(400).json({ error: "Estado inválido. Solo se permite: pendiente, cancelado, rechazado, completado" });
     }
 
     // Actualizar estado
@@ -885,7 +885,7 @@ app.put('/appointments/:id/status', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error al actualizar estado de la cita");
+    res.status(500).json({ error: "Error al actualizar estado de la cita" });
   }
 });
 
@@ -909,20 +909,20 @@ app.post('/users', authenticateToken, async (req, res) => {
     );
 
     if (currentUser.rows.length === 0) {
-      return res.status(401).send("Usuario logueado no encontrado");
+      return res.status(401).json({ error: "Usuario logueado no encontrado" });
     }
 
     if (currentUser.rows[0].rol !== "admin") {
-      return res.status(403).send("Solo un usuario con rol admin puede crear usuarios");
+      return res.status(403).json({ error: "Solo un usuario con rol admin puede crear usuarios" });
     }
     
     if (!username || !rol) {
-      return res.status(400).send('Campos obligatorios: username y rol');
+      return res.status(400).json({ error: "Campos obligatorios: nombre y rol" });
     }
 
     const validRoles = ['admin', 'agenda', 'consulta'];
     if (!validRoles.includes(rol)) {
-      return res.status(400).send('Rol inválido');
+      return res.status(400).json({ error: "Rol inválido" });
     }
 
     // Encriptar password por defecto
@@ -931,14 +931,14 @@ app.post('/users', authenticateToken, async (req, res) => {
     const result = await pool.query(
       `INSERT INTO users (username, password, rol, usr_status, must_change_password, failed_attempts)
        VALUES ($1, $2, $3, 'activo', TRUE, 0)
-       RETURNING id, username, rol, usr_status, must_change_password`,
+       RETURNING id, username, rol, usr_status, must_change_password, failed_attempts`,
       [username, defaultPassword, rol]
     );
 
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al crear usuario');
+    res.status(500).json({ error: "Error al crear usuario" });
   }
 });
 
@@ -959,16 +959,16 @@ app.put('/users/:id/rol', authenticateToken, async (req, res) => {
     );
 
     if (currentUser.rows.length === 0) {
-      return res.status(401).send("Usuario logueado no encontrado");
+      return res.status(401).json({ error: "Usuario logueado no encontrado"});
     }
 
     if (currentUser.rows[0].rol !== "admin") {
-      return res.status(403).send("Solo un usuario con rol admin puede cambiar roles");
+      return res.status(403).json({ error: "Solo un usuario con rol admin puede cambiar roles"});
     }
 
     // Validar nuevo rol
     if (!allowedRoles.includes(rol)) {
-      return res.status(400).send("Rol inválido. Solo se permite: admin, agenda, consulta");
+      return res.status(400).json({ error: "Rol inválido. Solo se permite: admin, agenda, consulta"});
     }
 
     // Verificar usuario a modificar
@@ -977,7 +977,7 @@ app.put('/users/:id/rol', authenticateToken, async (req, res) => {
       [id]
     );
     if (targetUser.rows.length === 0) {
-      return res.status(404).send("Usuario no encontrado");
+      return res.status(404).json({ error: "Usuario no encontrado"});
     }
 
     // Actualizar rol
@@ -994,7 +994,7 @@ app.put('/users/:id/rol', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error al actualizar rol del usuario");
+    res.status(500).json({ error: "Error al actualizar rol del usuario"});
   }
 });
 
@@ -1008,16 +1008,16 @@ app.put('/users/:id/status', authenticateToken, async (req, res) => {
     // Validar que el usuario logueado sea admin
     const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
     if (currentUser.rows.length === 0) {
-      return res.status(401).send('Usuario logueado no encontrado');
+      return res.status(401).json({ error: "Usuario logueado no encontrado"});
     }
     if (currentUser.rows[0].rol !== 'admin') {
-      return res.status(403).send('Solo un usuario con rol admin puede cambiar estados');
+      return res.status(403).json({ error: "Solo un usuario con rol admin puede cambiar estados"});
     }
 
     // Validar nuevo estado
     const validStatuses = ['activo', 'bloqueado', 'deshabilitado'];
     if (!validStatuses.includes(newStatus)) {
-      return res.status(400).send('Estado inválido');
+      return res.status(400).json({ error: "Estado inválido"});
     }
 
     // Actualizar estado del usuario
@@ -1027,13 +1027,13 @@ app.put('/users/:id/status', authenticateToken, async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).send(`Usuario con id ${id} no encontrado`);
+      return res.status(404).json({ error: `Usuario con id ${id} no encontrado`});
     }
 
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al cambiar estado del usuario');
+    res.status(500).json({ error: "Error al cambiar estado del usuario"});
   }
 });
 
@@ -1047,10 +1047,10 @@ app.get('/users', async (req, res) => {
     // Validar que el solicitante sea admin
     const adminCheck = await pool.query('SELECT rol FROM users WHERE id=$1', [adminId]);
     if (adminCheck.rows.length === 0) {
-      return res.status(403).send('Admin no encontrado');
+      return res.status(403).json({ error: "Admin no encontrado"});
     }
     if (adminCheck.rows[0].rol !== 'admin') {
-      return res.status(403).send('Solo un usuario con rol admin puede listar usuarios');
+      return res.status(403).json({ error: "Solo un usuario con rol admin puede listar usuarios"});
     }
 
     // Listar todos los usuarios
@@ -1061,7 +1061,7 @@ app.get('/users', async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al listar usuarios');
+    res.status(500).json({ error: "Error al listar usuarios"});
   }
 });
 
@@ -1089,7 +1089,7 @@ app.get('/interactions', authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al listar interacciones');
+    res.status(500).json({ error: "Error al listar interacciones"});
   }
 });
 
@@ -1099,7 +1099,7 @@ app.get('/interactions/search', authenticateToken, async (req, res) => {
   const { patient_name, patient_phone } = req.query;
 
   if (!patient_name && !patient_phone) {
-    return res.status(400).send('Debe enviar al menos un parámetro: patient_name o patient_phone');
+    return res.status(400).json({ error: "Debe enviar al menos un parámetro: patient_name o patient_phone"});
   }
 
   try {
@@ -1134,7 +1134,7 @@ app.get('/interactions/search', authenticateToken, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al buscar interacciones');
+    res.status(500).json({ error: "Error al buscar interacciones"});
   }
 });
 
@@ -1150,14 +1150,14 @@ app.post('/login', async (req, res) => {
     const result = await pool.query('SELECT * FROM users WHERE username=$1', [username]);
 
     if (result.rows.length === 0) {
-      return res.status(400).send('Usuario no encontrado');
+      return res.status(400).json({ error: "Usuario no encontrado"});
     }
 
     const user = result.rows[0];
 
     // Verificar estado
     if (user.usr_status !== 'activo') {
-      return res.status(403).send(`Usuario ${user.usr_status}, no puede iniciar sesión`);
+      return res.status(403).json({ error: `Usuario ${user.usr_status}, no puede iniciar sesión`});
     }
 
     // Comparar contraseña con bcrypt
@@ -1170,13 +1170,13 @@ app.post('/login', async (req, res) => {
           'UPDATE users SET usr_status=$1, failed_attempts=$2 WHERE id=$3',
           ['bloqueado', attempts, user.id]
         );
-        return res.status(403).send('Usuario bloqueado por múltiples intentos fallidos');
+        return res.status(403).json({ error: "Usuario bloqueado por múltiples intentos fallidos"});
       } else {
         await pool.query(
           'UPDATE users SET failed_attempts=$1 WHERE id=$2',
           [attempts, user.id]
         );
-        return res.status(400).send(`Contraseña incorrecta. Intentos fallidos: ${attempts}`);
+        return res.status(400).json({ error: `Contraseña incorrecta. Intentos fallidos: ${attempts}`});
       }
     }
 
@@ -1196,7 +1196,7 @@ app.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error en login');
+    res.status(500).json({ error: "Error en login"});
   }
 });
 
@@ -1208,7 +1208,7 @@ app.put('/users/:id/password', async (req, res) => {
   // Validar complejidad
   const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{10,}$/;
   if (!regex.test(newPassword)) {
-    return res.status(400).send('La contraseña debe tener mínimo 10 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales');
+    return res.status(400).json({ error: "La contraseña debe tener mínimo 10 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales"});
   }
 
   try {
@@ -1221,13 +1221,13 @@ app.put('/users/:id/password', async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).send(`Usuario con id ${id} no encontrado`);
+      return res.status(404).json({ error: `Usuario con id ${id} no encontrado`});
     }
 
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error al cambiar contraseña');
+    res.status(500).json({ error: "Error al cambiar contraseña"});
   }
 });
 
@@ -1239,20 +1239,20 @@ app.put('/users/:id/change-password', authenticateToken, async (req, res) => {
 
   // Validar que el usuario autenticado sea el mismo que quiere cambiar su contraseña
   if (parseInt(id) !== req.user.id) {
-    return res.status(403).send("No puede cambiar la contraseña de otro usuario");
+    return res.status(403).json({ error: "No puede cambiar la contraseña de otro usuario"});
   }
 
   // Validar complejidad de la nueva contraseña
   const regex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{10,}$/;
   if (!regex.test(newPassword)) {
-    return res.status(400).send('La contraseña debe tener mínimo 10 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales');
+    return res.status(400).json({ error: "La contraseña debe tener mínimo 10 caracteres, incluir mayúsculas, minúsculas, números y caracteres especiales"});
   }
 
   try {
     // Obtener usuario
     const result = await pool.query('SELECT password FROM users WHERE id=$1', [id]);
     if (result.rows.length === 0) {
-      return res.status(404).send("Usuario no encontrado");
+      return res.status(404).json({ error: "Usuario no encontrado"});
     }
 
     const user = result.rows[0];
@@ -1260,7 +1260,7 @@ app.put('/users/:id/change-password', authenticateToken, async (req, res) => {
     // Validar contraseña actual
     const match = await bcrypt.compare(currentPassword, user.password);
     if (!match) {
-      return res.status(400).send("La contraseña actual es incorrecta");
+      return res.status(400).json({ error: "La contraseña actual es incorrecta"});
     }
 
     // Guardar nueva contraseña
@@ -1270,6 +1270,12 @@ app.put('/users/:id/change-password', authenticateToken, async (req, res) => {
     res.json({ mensaje: "Contraseña cambiada correctamente" });
   } catch (err) {
     console.error(err);
-    res.status(500).send("Error al cambiar contraseña");
+    res.status(500).json({ error: "Error al cambiar contraseña"});
   }
+});
+
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Servidor corriendo en puerto ${PORT}`);
 });
