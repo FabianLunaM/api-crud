@@ -243,9 +243,9 @@ app.get('/schedule/today', authenticateToken, async (req, res) => {
     const requestedDate = new Date(today);
     const dayOfWeek = requestedDate.getDay(); // 0=Domingo, 6=Sábado
 
-    // Consultar citas de hoy
+    // Consultar citas de hoy (ahora incluye id)
     const result = await pool.query(
-      `SELECT a.time, a.duration, p.name AS patient_name, p.phone AS patient_phone, a.reason, a.status
+      `SELECT a.id, a.time, a.duration, p.name AS patient_name, p.phone AS patient_phone, a.reason, a.status
        FROM appointments a
        JOIN patients p ON a.patient_id = p.id
        WHERE a.date=$1`,
@@ -259,6 +259,7 @@ app.get('/schedule/today', authenticateToken, async (req, res) => {
         return res.json({ mensaje: "Sin citas disponibles en domingo" });
       } else {
         return res.json(appointments.map(a => ({
+          id: a.id,
           time: a.time,
           patient_name: a.patient_name,
           patient_phone: a.patient_phone,
@@ -276,6 +277,7 @@ app.get('/schedule/today', authenticateToken, async (req, res) => {
         return res.json({ mensaje: "Sin citas disponibles en feriado" });
       } else {
         return res.json(appointments.map(a => ({
+          id: a.id,
           time: a.time,
           patient_name: a.patient_name,
           patient_phone: a.patient_phone,
@@ -303,6 +305,7 @@ app.get('/schedule/today', authenticateToken, async (req, res) => {
       let [h, m] = a.time.split(':').map(Number);
       for (let i = 0; i < a.duration/30; i++) {
         occupiedSlots.push({
+          id: a.id,
           slot: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,
           patient_name: a.patient_name,
           patient_phone: a.patient_phone,
@@ -319,6 +322,7 @@ app.get('/schedule/today', authenticateToken, async (req, res) => {
       const appt = occupiedSlots.find(o => o.slot === slot);
       if (appt) {
         return {
+          id: appt.id,
           time: slot,
           patient_name: appt.patient_name,
           patient_phone: appt.patient_phone,
@@ -327,6 +331,7 @@ app.get('/schedule/today', authenticateToken, async (req, res) => {
         };
       } else {
         return {
+          id: null, // 👈 disponible no tiene id
           time: slot,
           patient_name: "Disponible",
           patient_phone: "",
@@ -343,6 +348,7 @@ app.get('/schedule/today', authenticateToken, async (req, res) => {
       const slotStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
       return !slots.includes(slotStr);
     }).map(a => ({
+      id: a.id,
       time: a.time,
       patient_name: a.patient_name,
       patient_phone: a.patient_phone,
@@ -359,7 +365,7 @@ app.get('/schedule/today', authenticateToken, async (req, res) => {
 });
 
 
-// Tabla de slots por horarios para cualquier fecha, con validación ±30 días (navegacion por fechas)--
+// Tabla de slots por horarios para cualquier fecha, con validación ±30 días
 app.get('/schedule/:date', authenticateToken, async (req, res) => {
   const { date } = req.params;
   try {
@@ -373,9 +379,9 @@ app.get('/schedule/:date', authenticateToken, async (req, res) => {
 
     const dayOfWeek = requestedDate.getDay(); // 0=Domingo, 6=Sábado
 
-    // Consultar citas de ese día
+    // Consultar citas de ese día (ahora incluye id)
     const result = await pool.query(
-      `SELECT a.time, a.duration, p.name AS patient_name, p.phone AS patient_phone, a.reason, a.status
+      `SELECT a.id, a.time, a.duration, p.name AS patient_name, p.phone AS patient_phone, a.reason, a.status
        FROM appointments a
        JOIN patients p ON a.patient_id = p.id
        WHERE a.date=$1`,
@@ -389,6 +395,7 @@ app.get('/schedule/:date', authenticateToken, async (req, res) => {
         return res.json({ mensaje: "Sin citas disponibles en domingo" });
       } else {
         return res.json(appointments.map(a => ({
+          id: a.id,
           time: a.time,
           patient_name: a.patient_name,
           patient_phone: a.patient_phone,
@@ -406,6 +413,7 @@ app.get('/schedule/:date', authenticateToken, async (req, res) => {
         return res.json({ mensaje: "Sin citas disponibles en feriado" });
       } else {
         return res.json(appointments.map(a => ({
+          id: a.id,
           time: a.time,
           patient_name: a.patient_name,
           patient_phone: a.patient_phone,
@@ -433,6 +441,7 @@ app.get('/schedule/:date', authenticateToken, async (req, res) => {
       let [h, m] = a.time.split(':').map(Number);
       for (let i = 0; i < a.duration/30; i++) {
         occupiedSlots.push({
+          id: a.id,
           slot: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`,
           patient_name: a.patient_name,
           patient_phone: a.patient_phone,
@@ -449,6 +458,7 @@ app.get('/schedule/:date', authenticateToken, async (req, res) => {
       const appt = occupiedSlots.find(o => o.slot === slot);
       if (appt) {
         return {
+          id: appt.id,
           time: slot,
           patient_name: appt.patient_name,
           patient_phone: appt.patient_phone,
@@ -457,6 +467,7 @@ app.get('/schedule/:date', authenticateToken, async (req, res) => {
         };
       } else {
         return {
+          id: null, // 👈 disponible no tiene id
           time: slot,
           patient_name: "Disponible",
           patient_phone: "",
@@ -473,6 +484,7 @@ app.get('/schedule/:date', authenticateToken, async (req, res) => {
       const slotStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
       return !slots.includes(slotStr);
     }).map(a => ({
+      id: a.id,
       time: a.time,
       patient_name: a.patient_name,
       patient_phone: a.patient_phone,
