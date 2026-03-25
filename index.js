@@ -137,18 +137,36 @@ app.put('/patients/:id', authenticateToken, async (req, res) => {
   const { name, phone } = req.body;
 
   try {
-     const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
+    const currentUser = await pool.query('SELECT rol FROM users WHERE id=$1', [req.user.id]);
     if (currentUser.rows.length === 0) {
       return res.status(401).json({ error: "Usuario logueado no encontrado" });
     }
     if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
       return res.status(403).json({ error: "Solo usuarios con rol admin o agenda pueden editar pacientes" });
     }
-  
-    const result = await pool.query(
-      'UPDATE patients SET name=$1, phone=$2 WHERE id=$3 RETURNING *',
-      [name, phone, id]
-    );
+
+    // Construir dinámicamente los campos a actualizar
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (name !== undefined) {
+      fields.push(`name=$${idx++}`);
+      values.push(name);
+    }
+    if (phone !== undefined) {
+      fields.push(`phone=$${idx++}`);
+      values.push(phone);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: "Nada para actualizar" });
+    }
+
+    values.push(id);
+
+    const query = `UPDATE patients SET ${fields.join(", ")} WHERE id=$${idx} RETURNING *`;
+    const result = await pool.query(query, values);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: `Paciente con id ${id} no encontrado` });
@@ -160,6 +178,7 @@ app.put('/patients/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Error al actualizar paciente" });
   }
 });
+
 
 
 // Eliminar un paciente (DELETE)
