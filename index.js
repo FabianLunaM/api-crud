@@ -1076,6 +1076,131 @@ app.put('/users/:id/status', authenticateToken, async (req, res) => {
 });
 
 
+// Editar datos de un usuario (rol, estado, username) - solo admin
+app.put('/users/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { rol, newStatus, username } = req.body;
+
+  // Roles y estados permitidos
+  const allowedRoles = ["admin", "agenda", "consulta"];
+  const validStatuses = ["activo", "bloqueado", "deshabilitado"];
+
+  try {
+    // Verificar que el usuario logueado sea admin
+    const currentUser = await pool.query(
+      'SELECT rol FROM users WHERE id=$1',
+      [req.user.id]
+    );
+
+    if (currentUser.rows.length === 0) {
+      return res.status(401).json({ error: "Usuario logueado no encontrado"});
+    }
+
+    if (currentUser.rows[0].rol !== "admin") {
+      return res.status(403).json({ error: "Solo un usuario con rol admin puede editar usuarios"});
+    }
+
+    // Verificar que el usuario a modificar exista
+    const targetUser = await pool.query(
+      'SELECT id, username, rol, usr_status FROM users WHERE id=$1',
+      [id]
+    );
+    if (targetUser.rows.length === 0) {
+      return res.status(404).json({ error: "Usuario no encontrado"});
+    }
+
+    // Construir dinámicamente los campos a actualizar
+    const fields = [];
+    const values = [];
+    let idx = 1;
+
+    if (rol) {
+      if (!allowedRoles.includes(rol)) {
+        return res.status(400).json({ error: "Rol inválido. Solo se permite: admin, agenda, consulta"});
+      }
+      fields.push(`rol=$${idx++}`);
+      values.push(rol);
+    }
+
+    if (newStatus) {
+      if (!validStatuses.includes(newStatus)) {
+        return res.status(400).json({ error: "Estado inválido"});
+      }
+      fields.push(`usr_status=$${idx++}`);
+      values.push(newStatus);
+    }
+
+    if (username) {
+      fields.push(`username=$${idx++}`);
+      values.push(username);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: "No se proporcionó ningún campo válido para actualizar"});
+    }
+
+    values.push(id); // último valor para el WHERE
+
+    const query = `
+      UPDATE users 
+      SET ${fields.join(", ")} 
+      WHERE id=$${idx} 
+      RETURNING id, username, rol, usr_status
+    `;
+
+    const update = await pool.query(query, values);
+
+    res.json({
+      mensaje: "Usuario actualizado correctamente",
+      ...update.rows[0]
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al actualizar usuario"});
+  }
+});
+
+// Filtrar usuarios por username (solo admin)
+app.get('/users', authenticateToken, async (req, res) => {
+  const { username } = req.query; // se pasa como ?username=valor
+
+  try {
+    // Verificar que el usuario logueado sea admin
+    const currentUser = await pool.query(
+      'SELECT rol FROM users WHERE id=$1',
+      [req.user.id]
+    );
+
+    if (currentUser.rows.length === 0) {
+      return res.status(401).json({ error: "Usuario logueado no encontrado"});
+    }
+
+    if (currentUser.rows[0].rol !== "admin") {
+      return res.status(403).json({ error: "Solo un usuario con rol admin puede listar usuarios"});
+    }
+
+    let result;
+    if (username) {
+      // Filtrar por username (case-insensitive con ILIKE)
+      result = await pool.query(
+        'SELECT id, username, rol, usr_status FROM users WHERE username ILIKE $1',
+        [`%${username}%`]
+      );
+    } else {
+      // Si no se pasa username, devolver todos
+      result = await pool.query(
+        'SELECT id, username, rol, usr_status FROM users'
+      );
+    }
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al obtener usuarios"});
+  }
+});
+
 
 // Listar todos los usuarios con sus roles y estados
 app.get('/users', async (req, res) => {
