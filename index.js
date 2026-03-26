@@ -539,7 +539,7 @@ app.post('/feriados', authenticateToken, async (req, res) => {
 });
 
 
-//Registra cita en slot disponnible
+// Registra cita en slot disponible
 app.post('/appointments/slot', authenticateToken, async (req, res) => {
   const { date, time, patient_id, reason } = req.body;
 
@@ -552,9 +552,9 @@ app.post('/appointments/slot', authenticateToken, async (req, res) => {
     if (!["admin", "agenda"].includes(currentUser.rows[0].rol)) {
       return res.status(403).json({ error: "Solo usuarios con rol admin o agenda pueden registrar citas" });
     }
-    
+
     // Validar paciente
-    const patientCheck = await pool.query('SELECT id, name FROM patients WHERE id=$1', [patient_id]);
+    const patientCheck = await pool.query('SELECT id, name, phone FROM patients WHERE id=$1', [patient_id]);
     if (patientCheck.rows.length === 0) {
       return res.status(400).json({ error: "Paciente no existe" });
     }
@@ -573,12 +573,19 @@ app.post('/appointments/slot', authenticateToken, async (req, res) => {
       [patient_id, date, time, reason]
     );
 
-    res.json(result.rows[0]);
+    const appointment = result.rows[0];
+
+    // 👇 Adjuntar datos del paciente
+    appointment.patient_name = patientCheck.rows[0].name;
+    appointment.patient_phone = patientCheck.rows[0].phone;
+
+    res.json(appointment);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Error al registrar cita" });
   }
 });
+
 
 
 //Edita citas canceladas o rechazadas
