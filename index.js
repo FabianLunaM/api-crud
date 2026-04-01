@@ -211,6 +211,80 @@ app.delete('/patients/:id', authenticateToken, async (req, res) => {
 // CRUD para APPOINTMENTS
 // ========================================================================================
 
+
+// Filtro general de citas con campo notas
+app.get('/appointments/filter', authenticateToken, async (req, res) => {
+  const { start_date, end_date, time, patient_name, patient_phone, status } = req.query;
+
+  try {
+    // Base query
+    let query = `
+      SELECT 
+        a.date, 
+        a.time, 
+        p.name AS patient_name, 
+        p.phone AS patient_phone, 
+        a.reason, 
+        a.status,
+        a.notes
+      FROM appointments a
+      JOIN patients p ON a.patient_id = p.id
+      WHERE 1=1
+    `;
+    const values = [];
+    let idx = 1;
+
+    // Rango de fechas
+    if (start_date && end_date) {
+      query += ` AND a.date BETWEEN $${idx++} AND $${idx++}`;
+      values.push(start_date, end_date);
+    } else if (start_date) {
+      query += ` AND a.date >= $${idx++}`;
+      values.push(start_date);
+    } else if (end_date) {
+      query += ` AND a.date <= $${idx++}`;
+      values.push(end_date);
+    }
+
+    // Hora exacta
+    if (time) {
+      query += ` AND a.time = $${idx++}`;
+      values.push(time);
+    }
+
+    // Nombre paciente
+    if (patient_name) {
+      query += ` AND p.name ILIKE $${idx++}`;
+      values.push(`%${patient_name}%`);
+    }
+
+    // Celular paciente
+    if (patient_phone) {
+      query += ` AND p.phone ILIKE $${idx++}`;
+      values.push(`%${patient_phone}%`);
+    }
+
+    // Estado cita
+    if (status) {
+      query += ` AND a.status ILIKE $${idx++}`;
+      values.push(`%${status}%`);
+    }
+
+    query += ` ORDER BY a.date, a.time`;
+
+    const result = await pool.query(query, values);
+
+    if (result.rows.length === 0) {
+      return res.json({ mensaje: "No se encontraron citas con esos filtros" });
+    }
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Error al filtrar citas" });
+  }
+});
+
 // Listar citas de la semana, actual 5 columnas
 app.get('/appointments/week', async (req, res) => {
   try {
