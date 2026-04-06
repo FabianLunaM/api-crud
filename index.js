@@ -878,9 +878,10 @@ app.post('/appointments/master', authenticateToken, async (req, res) => {
       if (m === 60) { h += 1; m = 0; }
     }
 
+    
     // Validar que ninguno de los bloques esté ocupado
     const apptCheck = await pool.query(
-      'SELECT time FROM appointments WHERE date=$1 AND time = ANY($2::text[])',
+      'SELECT time FROM appointments WHERE date=$1 AND time = ANY($2::time[])',
       [date, slots]
     );
     if (apptCheck.rows.length > 0) {
