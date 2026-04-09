@@ -1430,7 +1430,12 @@ app.post('/login', async (req, res) => {
 
     res.json({
       token,
-      must_change_password: user.must_change_password
+      user: {
+        id: user.id,
+        username: user.username,
+        rol: user.rol,
+        must_change_password: user.must_change_password
+      }
     });
   } catch (err) {
     console.error(err);
