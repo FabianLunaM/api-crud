@@ -4,6 +4,9 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const jwt = require('jsonwebtoken');
 
+///////////////////////////////////////////////////////////////////////////////
+
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -1480,6 +1483,7 @@ app.put('/users/:id/change-password', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { currentPassword, newPassword } = req.body;
 
+
   // Validar que el usuario autenticado sea el mismo que quiere cambiar su contraseña
   if (parseInt(id) !== req.user.id) {
     return res.status(403).json({ error: "No puede cambiar la contraseña de otro usuario"});
@@ -1508,7 +1512,10 @@ app.put('/users/:id/change-password', authenticateToken, async (req, res) => {
 
     // Guardar nueva contraseña
     const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
-    await pool.query('UPDATE users SET password=$1 WHERE id=$2', [hashedPassword, id]);
+    await pool.query(
+      'UPDATE users SET password=$1, must_change_password=false WHERE id=$2',
+      [hashedPassword, id]
+    );
 
     res.json({ mensaje: "Contraseña cambiada correctamente" });
   } catch (err) {
@@ -1518,7 +1525,11 @@ app.put('/users/:id/change-password', authenticateToken, async (req, res) => {
 });
 
 
+/////////////////////////////////////////////////////////////////////////////////////
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
 });
+
+////////////////////////////////////////////////////////////////////////////////////
